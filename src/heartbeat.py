@@ -128,7 +128,6 @@ def get_cards_needing_refresh():
     tier1 = supabase.table('prices')\
         .select('card_id, cards(name, set_name)')\
         .eq('refresh_tier', 1)\
-        .or_(f'last_ebay_fetch.is.null,last_ebay_fetch.lt.{(now - timedelta(hours=24)).isoformat()}')\
         .limit(400)\
         .execute()
     
@@ -138,7 +137,6 @@ def get_cards_needing_refresh():
     tier2 = supabase.table('prices')\
         .select('card_id, cards(name, set_name)')\
         .eq('refresh_tier', 2)\
-        .or_(f'last_ebay_fetch.is.null,last_ebay_fetch.lt.{(now - timedelta(hours=24)).isoformat()}')\
         .limit(1100)\
         .execute()
     
@@ -148,7 +146,6 @@ def get_cards_needing_refresh():
     tier3 = supabase.table('prices')\
         .select('card_id, cards(name, set_name)')\
         .eq('refresh_tier', 3)\
-        .or_(f'last_ebay_fetch.is.null,last_ebay_fetch.lt.{(now - timedelta(hours=24)).isoformat()}')\
         .limit(1800)\
         .execute()
     
@@ -158,7 +155,6 @@ def get_cards_needing_refresh():
     tier4 = supabase.table('prices')\
         .select('card_id, cards(name, set_name)')\
         .eq('refresh_tier', 4)\
-        .or_(f'last_ebay_fetch.is.null,last_ebay_fetch.lt.{(now - timedelta(days=2)).isoformat()}')\
         .limit(1400)\
         .execute()
     
@@ -168,7 +164,6 @@ def get_cards_needing_refresh():
     tier5 = supabase.table('prices')\
         .select('card_id, cards(name, set_name)')\
         .eq('refresh_tier', 5)\
-        .or_(f'last_ebay_fetch.is.null,last_ebay_fetch.lt.{(now - timedelta(days=7)).isoformat()}')\
         .limit(200)\
         .execute()
     
