@@ -8,7 +8,6 @@ Stays under 5,000 API calls/day until partner approval
 import os
 import time
 import requests
-import psycopg2
 from datetime import datetime, timedelta
 from supabase import create_client
 import schedule
@@ -263,19 +262,23 @@ def run_heartbeat():
     
     start_time = datetime.now()
     
-    # Log pipeline run (use direct DB connection to avoid RLS issues)
-    import psycopg2
-    conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO pipeline_runs (started_at, status)
-        VALUES (%s, %s)
-        RETURNING id
-    """, (start_time, 'running'))
-    run_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    # Log pipeline run
+    import json
+    run_data = supabase.table('pipeline_runs').insert({
+        'started_at': start_time.isoformat(),
+        'status': 'running'
+    }).execute()
+    
+    if run_data.data and len(run_data.data) > 0:
+        run_id = run_data.data[0]['id']
+    else:
+        # Fallback: query for the most recent run
+        recent = supabase.table('pipeline_runs')\
+            .select('id')\
+            .order('started_at', desc=True)\
+            .limit(1)\
+            .execute()
+        run_id = recent.data[0]['id'] if recent.data else None
     
     try:
         # Step 1: Fetch eBay data
@@ -292,41 +295,28 @@ def run_heartbeat():
         # Step 4: Run predictions
         # TODO: Implement prediction model
         
-        # Mark run as complete (use direct DB connection)
+        # Mark run as complete
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
-        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE pipeline_runs
-            SET finished_at = %s,
-                duration_secs = %s,
-                cards_processed = %s,
-                status = %s
-            WHERE id = %s
-        """, (end_time, int(duration), api_calls_today, 'success', run_id))
-        conn.commit()
-        cur.close()
-        conn.close()
+        supabase.table('pipeline_runs').update({
+            'finished_at': end_time.isoformat(),
+            'duration_secs': int(duration),
+            'cards_processed': api_calls_today,
+            'status': 'success'
+        }).eq('id', run_id).execute()
         
         log(f"✅ Heartbeat complete in {duration:.1f}s")
         
     except Exception as e:
         log(f"❌ Heartbeat failed: {e}")
         
-        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE pipeline_runs
-            SET finished_at = %s,
-                status = %s,
-                errors = %s
-            WHERE id = %s
-        """, (datetime.now(), 'failed', str(e), run_id))
-        conn.commit()
-        cur.close()
-        conn.close()
+        if run_id:
+            supabase.table('pipeline_runs').update({
+                'finished_at': datetime.now().isoformat(),
+                'status': 'failed',
+                'errors': {'error': str(e)}
+            }).eq('id', run_id).execute()
     
     log("=" * 60)
 
