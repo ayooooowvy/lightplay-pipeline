@@ -7,7 +7,7 @@
 
 from supabase import create_client
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # Initialize Supabase
 supabase = create_client(
@@ -21,18 +21,20 @@ def calculate_liquidity_score(card_id):
     Returns score 0-100.
     """
     # Get 7-day sales volume
+    cutoff_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     response_7d = supabase.table('ebay_sold_comps')\
         .select('*', count='exact')\
         .eq('card_id', card_id)\
-        .gte('sold_date', 'now() - interval \'7 days\'')\
+        .gte('sold_date', cutoff_7d)\
         .execute()
     volume_7day = response_7d.count or 0
-    
+
     # Get 30-day sales volume
+    cutoff_30d = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     response_30d = supabase.table('ebay_sold_comps')\
         .select('*', count='exact')\
         .eq('card_id', card_id)\
-        .gte('sold_date', 'now() - interval \'30 days\'')\
+        .gte('sold_date', cutoff_30d)\
         .execute()
     volume_30day = response_30d.count or 0
     
