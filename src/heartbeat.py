@@ -7,6 +7,7 @@ Stays under 5,000 API calls/day until partner approval
 
 import os
 import time
+import base64
 import requests
 from datetime import datetime, timedelta
 from supabase import create_client
@@ -21,7 +22,10 @@ supabase = create_client(
 # eBay API credentials
 EBAY_APP_ID = os.getenv('EBAY_APP_ID')
 EBAY_CERT_ID = os.getenv('EBAY_CERT_ID')
-EBAY_TOKEN = os.getenv('EBAY_USER_TOKEN')
+EBAY_SANDBOX = bool(EBAY_APP_ID and 'SBX' in EBAY_APP_ID)
+EBAY_BASE_URL = 'https://api.sandbox.ebay.com' if EBAY_SANDBOX else 'https://api.ebay.com'
+
+_ebay_token_cache = {'token': None, 'expires_at': None}
 
 # API call counter (track to stay under 5k/day)
 api_calls_today = 0
@@ -32,10 +36,34 @@ def log(message):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}")
 
 def get_ebay_auth_token():
-    """Get eBay OAuth token (cached for 2 hours)"""
-    # For Bootstrap Mode, use User Token from eBay Developer account
-    # Later: implement OAuth flow for production
-    return EBAY_TOKEN
+    """Get eBay OAuth token via Client Credentials flow, cached until near expiry"""
+    global _ebay_token_cache
+    now = datetime.now()
+    if _ebay_token_cache['token'] and _ebay_token_cache['expires_at'] and now < _ebay_token_cache['expires_at']:
+        return _ebay_token_cache['token']
+    credentials = base64.b64encode(f"{EBAY_APP_ID}:{EBAY_CERT_ID}".encode()).decode()
+    try:
+        response = requests.post(
+            f"{EBAY_BASE_URL}/identity/v1/oauth2/token",
+            headers={
+                'Authorization': f'Basic {credentials}',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            data='grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope',
+            timeout=15
+        )
+        if response.status_code == 200:
+            token_data = response.json()
+            _ebay_token_cache['token'] = token_data['access_token']
+            _ebay_token_cache['expires_at'] = now + timedelta(seconds=token_data.get('expires_in', 7200) - 300)
+            log(f"✅ eBay {'sandbox' if EBAY_SANDBOX else 'production'} token acquired")
+            return _ebay_token_cache['token']
+        else:
+            log(f"❌ eBay token error {response.status_code}: {response.text[:200]}")
+            return None
+    except Exception as e:
+        log(f"❌ Error getting eBay token: {e}")
+        return None
 
 def fetch_ebay_sold_comps(card_name, card_set, limit=10):
     """
@@ -52,10 +80,15 @@ def fetch_ebay_sold_comps(card_name, card_set, limit=10):
     query = f"{card_name} {card_set} Pokemon"
     
     # eBay Browse API endpoint
-    url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+    url = f"{EBAY_BASE_URL}/buy/browse/v1/item_summary/search"
     
+    token = get_ebay_auth_token()
+    if not token:
+        log("❌ No eBay token available, skipping fetch")
+        return []
+
     headers = {
-        'Authorization': f'Bearer {get_ebay_auth_token()}',
+        'Authorization': f'Bearer {token}',
         'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US'
     }
     
