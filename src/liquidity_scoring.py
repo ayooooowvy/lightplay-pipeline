@@ -38,13 +38,14 @@ def calculate_liquidity_score(card_id):
         .execute()
     volume_30day = response_30d.count or 0
     
-    # Get price volatility from trend_indicators
+    # Get price volatility from trend_indicators — use maybe_single() so cards
+    # without a trend_indicators row don't explode the scoring pass.
     trend_response = supabase.table('trend_indicators')\
         .select('volatility')\
         .eq('card_id', card_id)\
-        .single()\
+        .maybe_single()\
         .execute()
-    price_volatility = trend_response.data.get('volatility', 10) if trend_response.data else 10
+    price_volatility = trend_response.data.get('volatility', 10) if trend_response and trend_response.data else 10
     
     # Calculate average days to sell
     # Simplified: assume listings sell within 14 days on average
@@ -162,14 +163,14 @@ def get_suggested_sell_percent(card_id):
     Get dynamic sell % recommendation based on liquidity score.
     Used by buy/sell algorithm.
     """
-    # Get liquidity score
+    # Get liquidity score — maybe_single() tolerates unpriced cards
     response = supabase.table('prices')\
         .select('liquidity_score')\
         .eq('card_id', card_id)\
-        .single()\
+        .maybe_single()\
         .execute()
-    
-    liquidity_score = response.data.get('liquidity_score', 50) if response.data else 50
+
+    liquidity_score = response.data.get('liquidity_score', 50) if response and response.data else 50
     
     # Dynamic sell % based on liquidity
     if liquidity_score >= 70:
